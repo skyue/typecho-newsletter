@@ -125,6 +125,22 @@ class Newsletter_Service
             return;
         }
 
+        $cid = (string)($widget->cid ?? 0);
+
+        // 去重：已发送过的文章不再发送
+        $db = Db::get();
+        $existing = $db->fetchRow(
+            $db->select()->from('table.newsletter_digest_log')
+                ->where('post_ids = ?', $cid)
+                ->orWhere('post_ids LIKE ?', $cid . ',%')
+                ->orWhere('post_ids LIKE ?', '%,' . $cid . ',%')
+                ->orWhere('post_ids LIKE ?', '%,' . $cid)
+                ->limit(1)
+        );
+        if ($existing) {
+            return;
+        }
+
         // 分类过滤
         $filterCategory = $config->category ?? '';
         if (!empty($filterCategory)) {

@@ -127,6 +127,12 @@ class Newsletter_Service
 
         $cid = (string)($widget->cid ?? 0);
 
+        // 旧文章不推送：首次发布时间距今超过 3 天
+        $created = (int)($contents['created'] ?? 0);
+        if ($created > 0 && (time() - $created) > 3 * 86400) {
+            return;
+        }
+
         // 去重：已发送过的文章不再发送
         $db = Db::get();
         $existing = $db->fetchRow(

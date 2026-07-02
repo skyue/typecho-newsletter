@@ -18,6 +18,13 @@ if ($request->isPost()) {
     if ($request->get('do') === 'delete_subscriber') {
         $console->deleteSubscriber($request->get('id'));
         $notice = _t('已删除');
+    } elseif ($request->get('do') === 'batch_delete') {
+        $ids = $request->getArray('ids');
+        $count = $console->batchDelete($ids);
+        $notice = sprintf(_t('已删除 %d 个订阅者'), $count);
+    } elseif ($request->get('do') === 'delete_by_status') {
+        $count = $console->deleteByStatus($request->get('del_status'));
+        $notice = sprintf(_t('已删除 %d 个订阅者'), $count);
     } elseif ($request->get('do') === 'add_subscriber') {
         $msg = $console->addSubscriber($request->get('add_email'));
         $notice = $msg ?: _t('已添加');
@@ -71,55 +78,126 @@ if ($request->isPost()) {
 
     <div class="col-mb-12 col-tb-12 col-12">
     <?php if ($act === 'subscribers'): ?>
+      <?php
+      $status = $request->get('status', '');
+      $page = max(1, (int) $request->get('page', 1));
+      $pageSize = 50;
+
+      $subs = $console->getSubscribers($status, $page, $pageSize);
+      $total = $console->getSubscriberCount($status);
+      $totalPages = max(1, (int) ceil($total / $pageSize));
+
+      ob_start();
+      $options->adminUrl('extending.php?panel=Newsletter%2Fpage%2Fconsole.php&act=subscribers');
+      $baseUrl = ob_get_clean();
+      $statusUrl = fn($s) => $baseUrl . ($s !== '' ? '&status=' . $s : '');
+      $pageUrl = fn($p) => $baseUrl . ($status !== '' ? '&status=' . $status : '') . ($p > 1 ? '&page=' . $p : '');
+
+      $statusItems = [
+          ''              => _t('全部'),
+          'pending'       => _t('待确认'),
+          'active'        => _t('已确认'),
+          'unsubscribed'  => _t('已退订'),
+      ];
+      ?>
       <div class="typecho-list">
+        <!-- 添加订阅者 -->
         <form method="post" style="margin-bottom:16px;display:flex;gap:8px">
           <input type="hidden" name="do" value="add_subscriber">
           <input type="hidden" name="act" value="subscribers">
           <input type="email" name="add_email" class="text" placeholder="<?php _e('输入邮箱手动添加'); ?>" required style="flex:1;max-width:300px">
           <button type="submit" class="btn btn-s primary"><?php _e('添加'); ?></button>
         </form>
-        <?php $subs = $console->getSubscribers(); ?>
+
+        <!-- 状态筛选 -->
+        <ul class="typecho-option-tabs fix-tabs clearfix" style="margin-bottom:12px">
+          <?php foreach ($statusItems as $val => $label): ?>
+          <li<?php if ($status === $val): ?> class="current"<?php endif; ?>>
+            <a href="<?php echo $statusUrl($val); ?>"><?php echo $label; ?>
+              <?php
+              $cnt = $val === '' ? $console->getSubscriberCount('') : $console->getSubscriberCount($val);
+              ?>
+              <span style="color:#999;font-size:12px">(<?php echo $cnt; ?>)</span>
+            </a>
+          </li>
+          <?php endforeach; ?>
+        </ul>
+
         <?php if (empty($subs)): ?>
           <p><?php _e('暂无订阅者'); ?></p>
         <?php else: ?>
-          <table class="typecho-list-table">
-            <thead>
-              <tr>
-                <th><?php _e('邮箱'); ?></th>
-                <th><?php _e('状态'); ?></th>
-                <th><?php _e('订阅时间'); ?></th>
-                <th><?php _e('确认时间'); ?></th>
-                <th><?php _e('操作'); ?></th>
-              </tr>
-            </thead>
-            <tbody>
-              <?php foreach ($subs as $sub): ?>
-              <tr>
-                <td><?php echo htmlspecialchars($sub['email']); ?></td>
-                <td>
-                  <?php
-                  $statusLabels = [
-                      'pending'      => '<span style="color:#f0ad4e">' . _t('待确认') . '</span>',
-                      'active'       => '<span style="color:#5cb85c">' . _t('已确认') . '</span>',
-                      'unsubscribed' => '<span style="color:#999">' . _t('已退订') . '</span>',
-                  ];
-                  echo $statusLabels[$sub['status']] ?? $sub['status'];
-                  ?>
-                </td>
-                <td><?php echo date('Y-m-d H:i', $sub['created_at']); ?></td>
-                <td><?php echo $sub['confirmed_at'] ? date('Y-m-d H:i', $sub['confirmed_at']) : '-'; ?></td>
-                <td>
-                  <form method="post" onsubmit="return confirm('<?php _e('确认删除？'); ?>')" style="display:inline">
-                    <input type="hidden" name="do" value="delete_subscriber">
-                    <input type="hidden" name="id" value="<?php echo $sub['id']; ?>">
-                    <input type="hidden" name="act" value="subscribers">
-                    <button type="submit" class="btn btn-s btn-warn"><?php _e('删除'); ?></button>
-                  </form>
-                </td>
-              </tr>
-              <?php endforeach; ?>
-            </tbody>
-          </table>
+          <form method="post" id="subscribers-form">
+            <input type="hidden" name="do" value="batch_delete">
+            <input type="hidden" name="act" value="subscribers">
+            <input type="hidden" name="status" value="<?php echo htmlspecialchars($status); ?>">
+            <input type="hidden" name="page" value="<?php echo $page; ?>">
+
+            <table class="typecho-list-table">
+              <thead>
+                <tr>
+                  <th style="width:36px"><input type="checkbox" onclick="var els=document.querySelectorAll('#subscribers-form tbody input[type=checkbox]');for(var i=0;i<els.length;i++)els[i].checked=this.checked"></th>
+                  <th><?php _e('邮箱'); ?></th>
+                  <th><?php _e('状态'); ?></th>
+                  <th><?php _e('订阅时间'); ?></th>
+                  <th><?php _e('确认时间'); ?></th>
+                  <th><?php _e('操作'); ?></th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php foreach ($subs as $sub): ?>
+                <tr>
+                  <td><input type="checkbox" name="ids[]" value="<?php echo $sub['id']; ?>"></td>
+                  <td><?php echo htmlspecialchars($sub['email']); ?></td>
+                  <td>
+                    <?php
+                    $statusLabels = [
+                        'pending'      => '<span style="color:#f0ad4e">' . _t('待确认') . '</span>',
+                        'active'       => '<span style="color:#5cb85c">' . _t('已确认') . '</span>',
+                        'unsubscribed' => '<span style="color:#999">' . _t('已退订') . '</span>',
+                    ];
+                    echo $statusLabels[$sub['status']] ?? $sub['status'];
+                    ?>
+                  </td>
+                  <td><?php echo date('Y-m-d H:i', $sub['created_at']); ?></td>
+                  <td><?php echo $sub['confirmed_at'] ? date('Y-m-d H:i', $sub['confirmed_at']) : '-'; ?></td>
+                  <td>
+                    <button type="button" class="btn btn-s btn-warn" onclick="if(confirm('<?php _e('确认删除？'); ?>')){var f=document.createElement('form');f.method='post';f.style.display='none';var i1=document.createElement('input');i1.name='do';i1.value='delete_subscriber';var i2=document.createElement('input');i2.name='id';i2.value='<?php echo $sub['id']; ?>';var i3=document.createElement('input');i3.name='act';i3.value='subscribers';var i4=document.createElement('input');i4.name='status';i4.value='<?php echo htmlspecialchars($status); ?>';var i5=document.createElement('input');i5.name='page';i5.value='<?php echo $page; ?>';f.appendChild(i1);f.appendChild(i2);f.appendChild(i3);f.appendChild(i4);f.appendChild(i5);document.body.appendChild(f);f.submit();}"><?php _e('删除'); ?></button>
+                  </td>
+                </tr>
+                <?php endforeach; ?>
+              </tbody>
+            </table>
+
+            <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+              <button type="submit" class="btn btn-s btn-warn" onclick="return confirm('<?php _e('确认删除选中的订阅者？'); ?>')"><?php _e('删除选中'); ?></button>
+              <button type="button" class="btn btn-s btn-warn" onclick="if(confirm('<?php _e('确认删除所有「待确认」状态的订阅者？此操作不可恢复。'); ?>')){var f=document.createElement('form');f.method='post';f.style.display='none';var i1=document.createElement('input');i1.name='do';i1.value='delete_by_status';var i2=document.createElement('input');i2.name='del_status';i2.value='pending';var i3=document.createElement('input');i3.name='act';i3.value='subscribers';f.appendChild(i1);f.appendChild(i2);f.appendChild(i3);document.body.appendChild(f);f.submit();}"><?php _e('删除所有待确认'); ?></button>
+            </div>
+          </form>
+
+          <!-- 分页 -->
+          <?php if ($totalPages > 1): ?>
+          <div style="margin-top:16px;text-align:center">
+            <?php
+            $startPage = max(1, $page - 2);
+            $endPage = min($totalPages, $page + 2);
+            if ($startPage > 1): ?>
+              <a href="<?php echo $pageUrl(1); ?>" style="padding:4px 8px;border:1px solid #ddd;margin:0 2px;border-radius:3px">1</a>
+              <?php if ($startPage > 2): ?><span style="padding:4px 4px">...</span><?php endif; ?>
+            <?php endif; ?>
+            <?php for ($i = $startPage; $i <= $endPage; $i++): ?>
+              <?php if ($i === $page): ?>
+                <span style="padding:4px 8px;border:1px solid #467b96;background:#467b96;color:#fff;margin:0 2px;border-radius:3px"><?php echo $i; ?></span>
+              <?php else: ?>
+                <a href="<?php echo $pageUrl($i); ?>" style="padding:4px 8px;border:1px solid #ddd;margin:0 2px;border-radius:3px"><?php echo $i; ?></a>
+              <?php endif; ?>
+            <?php endfor; ?>
+            <?php if ($endPage < $totalPages): ?>
+              <?php if ($endPage < $totalPages - 1): ?><span style="padding:4px 4px">...</span><?php endif; ?>
+              <a href="<?php echo $pageUrl($totalPages); ?>" style="padding:4px 8px;border:1px solid #ddd;margin:0 2px;border-radius:3px"><?php echo $totalPages; ?></a>
+            <?php endif; ?>
+            <span style="color:#999;margin-left:8px;font-size:13px"><?php echo sprintf(_t('共 %d 条 / %d 页'), $total, $totalPages); ?></span>
+          </div>
+          <?php endif; ?>
         <?php endif; ?>
       </div>
 

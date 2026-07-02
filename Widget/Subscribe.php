@@ -174,6 +174,10 @@ class Subscribe extends Widget
                 <p class="nl-popup-desc"><?php echo htmlspecialchars($desc); ?></p>
                 <form class="nl-popup-form" method="post" action="<?php echo $actionUrl; ?>" novalidate>
                     <input type="email" name="email" class="nl-popup-input" placeholder="<?php echo htmlspecialchars($placeholder); ?>" required>
+                    <input type="hidden" name="ts" value="<?php echo time(); ?>">
+                    <div style="position:absolute;left:-9999px" aria-hidden="true">
+                        <input type="text" name="website" tabindex="-1" autocomplete="off">
+                    </div>
                     <button type="submit" class="nl-popup-btn"><?php echo htmlspecialchars($button); ?></button>
                 </form>
                 <?php if ($showRss): ?>

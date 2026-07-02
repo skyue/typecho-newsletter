@@ -15,11 +15,27 @@ class Newsletter_Console extends Typecho_Widget
     /**
      * 获取订阅者列表
      */
-    public function getSubscribers(): array
+    public function getSubscribers(string $status = '', int $page = 1, int $pageSize = 50): array
     {
-        return $this->_db->fetchAll(
-            $this->_db->select()->from('table.newsletter_subscribers')->order('created_at', Typecho\Db::SORT_DESC)
-        );
+        $select = $this->_db->select()->from('table.newsletter_subscribers')->order('created_at', Typecho\Db::SORT_DESC);
+        if ($status !== '') {
+            $select->where('status = ?', $status);
+        }
+        $select->offset(($page - 1) * $pageSize)->limit($pageSize);
+        return $this->_db->fetchAll($select);
+    }
+
+    /**
+     * 获取订阅者总数
+     */
+    public function getSubscriberCount(string $status = ''): int
+    {
+        $select = $this->_db->select('COUNT(*) AS num')->from('table.newsletter_subscribers');
+        if ($status !== '') {
+            $select->where('status = ?', $status);
+        }
+        $row = $this->_db->fetchRow($select);
+        return (int) ($row['num'] ?? 0);
     }
 
     /**
@@ -40,6 +56,36 @@ class Newsletter_Console extends Typecho_Widget
         $this->_db->query(
             $this->_db->delete('table.newsletter_subscribers')->where('id = ?', $id)
         );
+    }
+
+    /**
+     * 批量删除订阅者
+     */
+    public function batchDelete(array $ids): int
+    {
+        if (empty($ids)) {
+            return 0;
+        }
+        $ids = array_map('intval', $ids);
+        $this->_db->query(
+            $this->_db->delete('table.newsletter_subscribers')->where('id IN (' . implode(',', $ids) . ')')
+        );
+        return count($ids);
+    }
+
+    /**
+     * 按状态删除订阅者
+     */
+    public function deleteByStatus(string $status): int
+    {
+        $row = $this->_db->fetchRow(
+            $this->_db->select('COUNT(*) AS num')->from('table.newsletter_subscribers')->where('status = ?', $status)
+        );
+        $count = (int) ($row['num'] ?? 0);
+        $this->_db->query(
+            $this->_db->delete('table.newsletter_subscribers')->where('status = ?', $status)
+        );
+        return $count;
     }
 
     /**
